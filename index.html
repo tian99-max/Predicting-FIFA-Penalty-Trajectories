@@ -1,0 +1,1266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Penalty Kick Predictor — Teamgeist</title>
+<style>
+  :root{
+    --bg:#f5f6f8; --panel:#fff; --border:#d8dce2; --ink:#212a37; --muted:#6b7480;
+    --blue:#1a73e8; --blue-bg:#e8f0fe; --red:#dc3c3c; --green:#16a34a; --amber:#b7791f;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 "Segoe UI",system-ui,Arial,sans-serif}
+  header{padding:18px 24px 10px}
+  header h1{margin:0;font-size:26px}
+  header p{margin:6px 0 0;color:var(--muted);max-width:1000px}
+  .badge{display:inline-block;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:600;color:#fff;background:var(--blue);vertical-align:middle}
+  .badge.warn{background:var(--amber)}
+  .wrap{display:grid;grid-template-columns:380px 1fr;gap:16px;padding:0 24px 24px}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:16px}
+  .card h2{margin:0 0 2px;font-size:16px}
+  .card .sub{color:var(--muted);font-size:12px;margin:0 0 12px}
+  label{display:block;font-size:12px;color:var(--muted);margin:8px 0 2px}
+  input,select{width:100%;padding:7px 8px;border:1px solid var(--border);border-radius:7px;font-size:13px;background:#fff;color:var(--ink)}
+  .row{display:flex;gap:8px}
+  .row>div{flex:1}
+  .obsgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+  .obsgrid .h{font-size:11px;color:var(--muted);text-align:center}
+  .btn{display:inline-block;width:100%;margin-top:10px;padding:9px;border:0;border-radius:9px;background:var(--blue);color:#fff;font-weight:600;cursor:pointer}
+  .btn.ghost{background:#fff;color:var(--blue);border:1px solid var(--blue)}
+  .btn.small{width:auto;padding:6px 12px;font-size:12px;margin:0 6px 6px 0}
+  .btn:disabled{background:#b9c4d3;cursor:not-allowed}
+  .note{background:var(--blue-bg);border-left:3px solid var(--blue);border-radius:6px;padding:8px 10px;font-size:12px;color:#33475b;margin-top:10px}
+  .warn{background:#fdf6e7;border-left-color:var(--amber);color:#6b4e12}
+  .tabs{display:flex;gap:8px;margin:14px 0 12px}
+  .tabs button{flex:1;border:1px solid var(--border);background:#fff;padding:8px;border-radius:8px;cursor:pointer;font-weight:600;color:var(--muted)}
+  .tabs button.active{background:var(--blue);color:#fff;border-color:var(--blue)}
+  .mode{display:none}.mode.active{display:block}
+  .plots{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  figure{margin:0}
+  figcaption{font-size:12px;color:var(--muted);margin-bottom:3px;display:flex;justify-content:space-between;align-items:center}
+  canvas{width:100%;background:#fbfcfe;border:1px solid var(--border);border-radius:8px}
+  .kv{display:inline-block;background:#f1f4f8;border-radius:6px;padding:3px 8px;margin:0 6px 6px 0;font-size:13px}
+  .kv b{color:var(--blue)}
+  .st{font-weight:700}
+  .st.ok{color:var(--green)}.st.bad{color:var(--red)}.st.warn{color:var(--amber)}
+  #stats{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
+  .stat{background:#f1f4f8;border:1px solid var(--border);border-radius:10px;padding:7px 12px;min-width:92px}
+  .stat .k{font-size:11px;color:var(--muted)}
+  .stat .v{font-size:17px;font-weight:700}
+  #progress{height:7px;background:#e6e9ee;border-radius:4px;margin-top:10px;overflow:hidden;display:none}
+  #progress>div{height:100%;background:var(--blue);width:0;transition:width .1s}
+  table.mini{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+  table.mini th,table.mini td{border-bottom:1px solid #eceff3;padding:4px 6px;text-align:right}
+  table.mini th:first-child,table.mini td:first-child{text-align:left}
+  .scroll{max-height:190px;overflow:auto}
+  .muted{color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Penalty Kick Predictor <span class="badge">Teamgeist</span></h1>
+  <p>First goal-plane crossing from three early positions (t = 0, 0.05, 0.10 s). Aerodynamic coefficients come from a team-supplied table indexed by the dimensionless spin parameter S = R|ω|/|v|. Every number on this page is computed live.</p>
+</header>
+
+<div class="wrap">
+  <!-- ================= LEFT ================= -->
+  <aside class="card">
+    <h2>Setup</h2>
+    <p class="sub">common to both modes</p>
+
+    <div class="note">
+      <b>Ball:</b> Adidas Teamgeist, 14-panel thermally bonded, size 5.<br>
+      <b>Coefficients:</b> team-supplied table, <b>not independently calibrated</b>.<br>
+      <b>Physical parameters:</b> assumed values (see below), not measured for this ball.
+    </div>
+
+    <label>Prediction model</label>
+    <select id="modelSel">
+      <option value="0">Model 0 — constant acceleration (analytic baseline)</option>
+      <option value="1">Model 1 — gravity only (control)</option>
+      <option value="2">Model 2 — non-spinning drag, C_D(0) = 0.15</option>
+      <option value="3" selected>Model 3 — spin, frozen coefficients</option>
+      <option value="4">Model 4 — spin, coefficients updated with S(t)</option>
+    </select>
+
+    <label style="margin-top:12px">Assumed physical parameters</label>
+    <div class="row">
+      <div><label>mass m (kg)</label><input id="pMass" type="number" value="0.43" step="0.005" min="0.30" max="0.60"></div>
+      <div><label>radius R (m)</label><input id="pRad" type="number" value="0.11" step="0.002" min="0.09" max="0.13"></div>
+    </div>
+    <div class="row">
+      <div><label>air density ρ (kg/m³)</label><input id="pRho" type="number" value="1.20" step="0.01"></div>
+      <div><label>viscosity μ (Pa·s)</label><input id="pMu" type="number" value="1.8e-5" step="1e-6"></div>
+    </div>
+
+    <div class="row" style="margin-top:10px">
+      <div><label>Noise σ (m)</label><input id="sigma" type="number" value="0.01" step="0.001" min="0"></div>
+      <div><label>MC trials N</label><input id="mcN" type="number" value="100" step="20" min="5"></div>
+      <div><label>Seed</label><input id="seed" type="number" value="2026" step="1"></div>
+    </div>
+
+    <div class="tabs">
+      <button id="tabP" class="active">Problem Case</button>
+      <button id="tabS">Synthetic</button>
+    </div>
+
+    <div id="panelP" class="mode active">
+      <label>Observed positions (rows x / y / z, columns t)</label>
+      <div class="obsgrid">
+        <div class="h">t = 0</div><div class="h">t = 0.05</div><div class="h">t = 0.10</div>
+        <input id="p0x" type="number" value="0.00" step="0.01"><input id="p1x" type="number" value="1.50" step="0.01"><input id="p2x" type="number" value="2.96" step="0.01">
+        <input id="p0y" type="number" value="0.00" step="0.01"><input id="p1y" type="number" value="0.45" step="0.01"><input id="p2y" type="number" value="0.86" step="0.01">
+        <input id="p0z" type="number" value="0.11" step="0.01"><input id="p1z" type="number" value="0.44" step="0.01"><input id="p2z" type="number" value="0.74" step="0.01">
+      </div>
+      <button id="btnPredict" class="btn">Predict (nominal)</button>
+      <button id="btnMC" class="btn ghost">Uncertainty — observation perturbation &amp; refit</button>
+      <button id="btnCancel" class="btn ghost" style="display:none">Cancel</button>
+      <div class="note">Six later coordinates cannot identify all spin and aerodynamic parameters. Results are conditional on the supplied table, the axis assumption and the assumed ball parameters.</div>
+    </div>
+
+    <div id="panelS" class="mode">
+      <label>Reference generator model</label>
+      <select id="genModel">
+        <option value="2">Model 2 — non-spinning drag</option>
+        <option value="3" selected>Model 3 — frozen coefficients</option>
+        <option value="4">Model 4 — updated coefficients</option>
+      </select>
+      <div class="row">
+        <div><label>speed |v₀| (m/s)</label><input id="sSpeed" type="number" value="32.5" step="0.5"></div>
+        <div><label>elevation (°)</label><input id="sElev" type="number" value="12.5" step="0.5"></div>
+        <div><label>azimuth (°)</label><input id="sAz" type="number" value="16.9" step="0.5"></div>
+      </div>
+      <div class="row">
+        <div><label>S₀</label><input id="sSpin" type="number" value="0.06" step="0.01" min="0" max="0.30"></div>
+        <div><label>φ (rad)</label><input id="sPhi" type="number" value="1.2" step="0.1"></div>
+      </div>
+      <div class="note" id="spinInfo">Spin rate implied by S₀: —</div>
+      <button id="btnNew" class="btn">New shot (predict → reveal)</button>
+      <button id="btnNT" class="btn ghost">Run N trials (error statistics)</button>
+      <div class="note">The predictor only reads the three noisy positions and the declared table; it never sees the hidden truth.</div>
+    </div>
+  </aside>
+
+  <!-- ================= RIGHT ================= -->
+  <section class="card">
+    <h2>Results</h2>
+    <p class="sub" id="timing">—</p>
+
+    <div class="plots">
+      <figure><figcaption><span>Side view (x–z)</span></figcaption><canvas id="cXZ" width="430" height="250"></canvas></figure>
+      <figure><figcaption><span>Top view (x–y)</span></figcaption><canvas id="cXY" width="430" height="250"></canvas></figure>
+      <figure><figcaption><span>Goal plane (y–z)</span></figcaption><canvas id="cYZ" width="430" height="300"></canvas></figure>
+      <figure><figcaption><span>Coefficient table and interpolation</span></figcaption><canvas id="cCoeff" width="430" height="300"></canvas></figure>
+      <figure><figcaption><span>Spin parameter along the trajectory, S(t)</span></figcaption><canvas id="cSpin" width="430" height="200"></canvas></figure>
+      <figure><figcaption><span>Status</span></figcaption><canvas id="cInfo" width="430" height="200"></canvas></figure>
+    </div>
+
+    <div class="plots" style="margin-top:14px">
+      <figure><figcaption>Marginal distribution of y<sub>g</sub></figcaption><canvas id="hY" width="430" height="140"></canvas></figure>
+      <figure><figcaption>Marginal distribution of z<sub>g</sub></figcaption><canvas id="hZ" width="430" height="140"></canvas></figure>
+    </div>
+
+    <div id="progress"><div></div></div>
+    <div id="out" style="margin-top:12px"></div>
+    <div id="stats"></div>
+
+    <div style="margin-top:14px">
+      <button class="btn small ghost" id="exCsv">Export MC CSV</button>
+      <button class="btn small ghost" id="exJson">Export config + result (JSON)</button>
+      <button class="btn small ghost" id="exPng">Download plots (PNG)</button>
+    </div>
+  </section>
+</div>
+
+<script>
+"use strict";
+
+/* ============================================================
+   1. Constants and team-supplied coefficient table
+   ============================================================ */
+const GRAV = 9.81;
+const GOAL_X = 11.0, GOAL_HALF = 3.66, GOAL_H = 2.44;
+const T_OBS = [0, 0.05, 0.10];
+
+const SPIN_NODES = [0.00, 0.03, 0.05, 0.075, 0.10, 0.125, 0.15, 0.20, 0.25, 0.30];
+const CD_NODES   = [0.15, 0.17, 0.18, 0.200, 0.22, 0.240, 0.25, 0.26, 0.27, 0.28];
+const CL_NODES   = [0.00, 0.04, 0.17, 0.210, 0.23, 0.250, 0.27, 0.29, 0.31, 0.33];
+const S_MAX = SPIN_NODES[SPIN_NODES.length - 1];
+
+/* piecewise-linear interpolation, clamped to the table domain (no extrapolation) */
+function interp(nodes, values, s){
+  if(s <= nodes[0]) return values[0];
+  const last = nodes.length - 1;
+  if(s >= nodes[last]) return values[last];
+  let i = 0;
+  while(i < last && nodes[i+1] < s) i++;
+  const f = (s - nodes[i]) / (nodes[i+1] - nodes[i]);
+  return values[i] + f * (values[i+1] - values[i]);
+}
+const cdOf = s => interp(SPIN_NODES, CD_NODES, s);
+const clOf = s => interp(SPIN_NODES, CL_NODES, s);
+
+/* ============================================================
+   2. Vector helpers
+   ============================================================ */
+const cross = (a,b)=>[a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+const dot   = (a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+const norm  = a=>Math.hypot(a[0],a[1],a[2]);
+const unit  = a=>{const n=norm(a)||1;return [a[0]/n,a[1]/n,a[2]/n];};
+
+/* ============================================================
+   3. Physical context and right-hand side
+   ============================================================ */
+function makeCtx(model, phys, omega, S0){
+  const A = Math.PI * phys.R * phys.R;
+  const K = phys.rho * A / (2 * phys.m);
+  return {
+    model, R: phys.R, m: phys.m, rho: phys.rho, mu: phys.mu, K,
+    omega: omega || [0,0,0],
+    omegaMag: omega ? norm(omega) : 0,
+    cd0: S0 !== undefined ? cdOf(S0) : 0.15,
+    cl0: S0 !== undefined ? clOf(S0) : 0,
+    r0: phys.r0,
+  };
+}
+
+function spinState(S, R, u){ return R * S / Math.max(u, 1e-9); }   /* helper for clarity */
+
+function deriv(y, ctx){
+  const v = [y[3], y[4], y[5]];
+  const u = norm(v);
+  const a = [0, 0, -GRAV];
+  if(ctx.model >= 2){
+    let CD, CL;
+    if(ctx.model === 2){ CD = 0.15; CL = 0; }
+    else if(ctx.model === 3){ CD = ctx.cd0; CL = ctx.cl0; }
+    else {
+      const S = ctx.R * ctx.omegaMag / Math.max(u, 1e-9);
+      CD = cdOf(S); CL = clOf(S);
+    }
+    const k = ctx.K * CD * u;
+    a[0] -= k*v[0]; a[1] -= k*v[1]; a[2] -= k*v[2];
+    if(CL > 0 && ctx.omegaMag > 0){
+      const c = cross(ctx.omega, v);
+      const nc = norm(c);
+      if(nc > 1e-12){
+        const f = ctx.K * CL * u * u / nc;
+        a[0] += f*c[0]; a[1] += f*c[1]; a[2] += f*c[2];
+      }
+    }
+  }
+  return [v[0], v[1], v[2], a[0], a[1], a[2]];
+}
+
+function rk4(y, h, ctx){
+  const k1 = deriv(y, ctx);
+  const y2 = [y[0]+0.5*h*k1[0], y[1]+0.5*h*k1[1], y[2]+0.5*h*k1[2], y[3]+0.5*h*k1[3], y[4]+0.5*h*k1[4], y[5]+0.5*h*k1[5]];
+  const k2 = deriv(y2, ctx);
+  const y3 = [y[0]+0.5*h*k2[0], y[1]+0.5*h*k2[1], y[2]+0.5*h*k2[2], y[3]+0.5*h*k2[3], y[4]+0.5*h*k2[4], y[5]+0.5*h*k2[5]];
+  const k3 = deriv(y3, ctx);
+  const y4 = [y[0]+h*k3[0], y[1]+h*k3[1], y[2]+h*k3[2], y[3]+h*k3[3], y[4]+h*k3[4], y[5]+h*k3[5]];
+  const k4 = deriv(y4, ctx);
+  const out = [];
+  for(let i=0;i<6;i++) out[i] = y[i] + h/6*(k1[i] + 2*k2[i] + 2*k3[i] + k4[i]);
+  return out;
+}
+
+/* ============================================================
+   4. Forward evaluation used by the fit
+   ============================================================ */
+const DT_FIT = 5e-4;    /* RK4, checked against 1e-4 (difference < 1e-7 m) */
+
+function evalPositions(ctx, v0, times){
+  let y = [ctx.r0[0], ctx.r0[1], ctx.r0[2], v0[0], v0[1], v0[2]];
+  let t = 0;
+  const out = [];
+  for(const tt of times){
+    while(t < tt - 1e-12){
+      const h = Math.min(DT_FIT, tt - t);
+      y = rk4(y, h, ctx);
+      t += h;
+      if(y[2] < ctx.R && y[5] < 0) return { ok:false, reason:'ground_first' };
+      if(ctx.model === 4){
+        const u = norm([y[3],y[4],y[5]]);
+        if(ctx.R * ctx.omegaMag / Math.max(u,1e-9) > S_MAX) return { ok:false, reason:'outside_spin_table' };
+      }
+    }
+    out.push([y[0], y[1], y[2]]);
+  }
+  return { ok:true, pos:out };
+}
+
+/* ============================================================
+   5. Event integration (full trajectory)
+   ============================================================ */
+function integrateEvent(ctx, v0, dt, tMax){
+  dt = dt || 2e-4; tMax = tMax || 3;
+  let y = [ctx.r0[0], ctx.r0[1], ctx.r0[2], v0[0], v0[1], v0[2]];
+  let t = 0;
+  const traj = [[0, y[0], y[1], y[2], y[3], y[4], y[5], ctx.model===4 ? ctx.R*ctx.omegaMag/Math.max(norm(v0),1e-9) : ctx.cd0]];
+  let event = null;
+  let S = ctx.R * ctx.omegaMag / Math.max(norm(v0), 1e-9);
+
+  while(t < tMax - 1e-12){
+    const h = Math.min(dt, tMax - t);
+    const yn = rk4(y, h, ctx);
+    const tn = t + h;
+    const u = norm([yn[3],yn[4],yn[5]]);
+    const Sn = ctx.R * ctx.omegaMag / Math.max(u, 1e-9);
+
+    /* goal plane */
+    if(y[0] < GOAL_X && yn[0] >= GOAL_X && yn[3] > 0){
+      const tt = bisect(y, yn, t, tn, ctx, st => st[0] - GOAL_X);
+      const yc = lerpState(y, yn, t, tn, tt);
+      if(tt < 0.10){ event = { type:'crossing_before_last_observation', t:tt }; }
+      else { event = { type:'goal_plane', t:tt, yg:yc[1], zg:yc[2], vx:yc[3] }; }
+      traj.push([tt, yc[0], yc[1], yc[2], yc[3], yc[4], yc[5], Sn]);
+      break;
+    }
+    /* ground */
+    if(y[2] > ctx.R && yn[2] <= ctx.R && yn[5] < 0 && t > 0){
+      event = { type:'ground_first', t:tn };
+      traj.push([tn, yn[0], yn[1], yn[2], yn[3], yn[4], yn[5], Sn]);
+      break;
+    }
+    /* table bound, updated-coefficient model only */
+    if(ctx.model === 4 && Sn > S_MAX){
+      event = { type:'outside_spin_table', t:tn, S:Sn };
+      traj.push([tn, yn[0], yn[1], yn[2], yn[3], yn[4], yn[5], Sn]);
+      break;
+    }
+    y = yn; t = tn; S = Sn;
+    traj.push([t, y[0], y[1], y[2], y[3], y[4], y[5], S]);
+  }
+  if(!event) event = { type:'no_crossing_by_time_limit', t:tMax };
+  return { event, traj, Smax:S };
+}
+
+function bisect(y0, y1, t0, t1, ctx, f){
+  let a = t0, b = t1;
+  const fa = f(y0);
+  for(let i=0;i<50;i++){
+    const m = 0.5*(a+b);
+    const ym = rk4(y0, m - t0, ctx);
+    if(fa * f(ym) <= 0) b = m; else a = m;
+  }
+  return 0.5*(a+b);
+}
+function lerpState(y0,y1,t0,t1,t){
+  const f = (t-t0)/(t1-t0);
+  const o = [];
+  for(let i=0;i<6;i++) o[i] = y0[i] + f*(y1[i]-y0[i]);
+  return o;
+}
+
+/* ============================================================
+   6. Analytic baseline
+   ============================================================ */
+function analytic(obs){
+  const h = 0.05, r0 = obs[0], r1 = obs[1], r2 = obs[2];
+  const a = [0,0,0], v0 = [0,0,0];
+  for(let k=0;k<3;k++){
+    a[k] = (r2[k] - 2*r1[k] + r0[k]) / (h*h);
+    v0[k] = (r1[k] - r0[k]) / h - 0.5*a[k]*h;
+  }
+  return { v0, a };
+}
+function analyticCrossing(obs){
+  const { v0, a } = analytic(obs);
+  const A = 0.5*a[0], B = v0[0], C = obs[0][0] - GOAL_X;
+  let roots = [];
+  if(Math.abs(A) < 1e-12) roots = [-C/B];
+  else {
+    const disc = B*B - 4*A*C;
+    if(disc < 0) return { event:{type:'no_crossing_by_time_limit'} };
+    const s = Math.sqrt(disc);
+    roots = [(-B-s)/(2*A), (-B+s)/(2*A)];
+  }
+  const cand = roots.filter(t => t > 0.10 && (v0[0]+a[0]*t) > 0).sort((x,y)=>x-y);
+  if(!cand.length) return { event:{type:'no_crossing_by_time_limit'} };
+  const tg = cand[0];
+  return {
+    event:{ type:'goal_plane', t:tg,
+      yg: obs[0][1] + v0[1]*tg + 0.5*a[1]*tg*tg,
+      zg: obs[0][2] + v0[2]*tg + 0.5*a[2]*tg*tg },
+    v0, a
+  };
+}
+function analyticTraj(v0, a, tEnd){
+  const out = [], n = 600;
+  for(let i=0;i<=n;i++){
+    const t = tEnd*i/n;
+    out.push([t, v0[0]*t+0.5*a[0]*t*t, v0[1]*t+0.5*a[1]*t*t, 0.11+v0[2]*t+0.5*a[2]*t*t, 0, 0, 0, 0]);
+  }
+  return out;
+}
+
+/* ============================================================
+   7. Spin parameterisation and fitting
+   ============================================================ */
+function omegaFrom(v0, R, S0, phi){
+  const e = unit(v0);
+  let q = [0,0,1];
+  if(Math.abs(dot(e,q)) > 0.95) q = [0,1,0];
+  const e1 = unit(cross(e,q));
+  const e2 = cross(e,e1);
+  const mag = S0 * norm(v0) / R;
+  return [ mag*(Math.cos(phi)*e1[0] + Math.sin(phi)*e2[0]),
+           mag*(Math.cos(phi)*e1[1] + Math.sin(phi)*e2[1]),
+           mag*(Math.cos(phi)*e1[2] + Math.sin(phi)*e2[2]) ];
+}
+
+const BOUNDS = {
+  vx:[5,60], vy:[-30,30], vz:[0.05,30],
+  S0:[1e-6, 0.299], phi:[-Math.PI, Math.PI]
+};
+
+function wrapPi(x){
+  let v = (x + Math.PI) % (2*Math.PI);
+  if(v < 0) v += 2*Math.PI;
+  return v - Math.PI;
+}
+
+function makeResidual(model, phys, obs, sigma){
+  const s = sigma > 0 ? sigma : 1;
+  return function(theta){
+    const v0 = [theta[0], theta[1], theta[2]];
+    let ctx;
+    if(model >= 3){
+      const S0 = theta[3], phi = theta[4];
+      ctx = makeCtx(model, phys, omegaFrom(v0, phys.R, S0, phi), S0);
+    } else {
+      ctx = makeCtx(model, phys, null, undefined);
+    }
+    const r = evalPositions(ctx, v0, T_OBS.slice(1));
+    if(!r.ok) return null;
+    const res = [];
+    for(let i=0;i<2;i++) for(let k=0;k<3;k++) res.push((r.pos[i][k] - obs[i+1][k]) / s);
+    return res;
+  };
+}
+
+function nParams(model){ return model >= 3 ? 5 : 3; }
+
+function unpack(theta, model, phys){
+  const v0 = [theta[0], theta[1], theta[2]];
+  if(model >= 3){
+    const S0 = theta[3], phi = theta[4];
+    return { v0, S0, phi, omega: omegaFrom(v0, phys.R, S0, phi) };
+  }
+  return { v0 };
+}
+
+function clampTheta(theta, model){
+  const out = theta.slice();
+  out[0] = Math.min(Math.max(out[0], BOUNDS.vx[0]), BOUNDS.vx[1]);
+  out[1] = Math.min(Math.max(out[1], BOUNDS.vy[0]), BOUNDS.vy[1]);
+  out[2] = Math.min(Math.max(out[2], BOUNDS.vz[0]), BOUNDS.vz[1]);
+  if(model >= 3){
+    out[3] = Math.min(Math.max(out[3], BOUNDS.S0[0]), BOUNDS.S0[1]);
+    out[4] = wrapPi(out[4]);
+  }
+  return out;
+}
+
+function lmFit(residual, theta0, model){
+  const n = theta0.length;
+  let x = clampTheta(theta0, model);
+  let r = residual(x);
+  if(!r) return null;
+  let cost = r.reduce((a,b)=>a+b*b, 0);
+  let lambda = 1e-3;
+
+  for(let iter=0; iter<60; iter++){
+    /* forward-difference Jacobian */
+    const J = [];
+    for(let j=0;j<n;j++){
+      const eps = 1e-6 * (1 + Math.abs(x[j]));
+      const xp = x.slice(); xp[j] += eps;
+      const rp = residual(clampTheta(xp, model));
+      if(!rp) return { x, cost, r, iter };
+      J.push(rp.map((v,k)=>(v - r[k])/eps));
+    }
+    const m = r.length;
+    const A = [], g = [];
+    for(let a2=0;a2<n;a2++){
+      A.push([]);
+      for(let b=0;b<n;b++){
+        let sum = 0;
+        for(let k=0;k<m;k++) sum += J[a2][k]*J[b][k];
+        A[a2].push(sum);
+      }
+      let sum = 0;
+      for(let k=0;k<m;k++) sum += J[a2][k]*r[k];
+      g.push(sum);
+    }
+    const M = A.map((row,i)=>row.map((v,j)=> v + (i===j ? lambda*(A[i][i]+1e-12) : 0)));
+    const delta = solve(M, g.map(v=>-v));
+    if(!delta){ if(lambda > 1e10) break; lambda *= 10; continue; }
+    const xn = clampTheta(x.map((v,i)=>v+delta[i]), model);
+    const rn = residual(xn);
+    if(rn){
+      const cn = rn.reduce((a2,b2)=>a2+b2*b2, 0);
+      if(cn < cost){ x = xn; r = rn; cost = cn; lambda = Math.max(lambda/3, 1e-12); }
+      else { lambda *= 4; }
+    } else { lambda *= 4; }
+    if(lambda > 1e10) break;
+    const step = Math.hypot(...delta.map((d,i)=> d/(1+Math.abs(x[i]))));
+    if(step < 1e-10) break;
+  }
+  return { x, cost, r };
+}
+
+function solve(A, b){
+  const n = b.length;
+  const M = A.map((row,i)=>row.concat([b[i]]));
+  for(let c=0;c<n;c++){
+    let p = c;
+    for(let r=c+1;r<n;r++) if(Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+    [M[c], M[p]] = [M[p], M[c]];
+    const d = M[c][c];
+    if(Math.abs(d) < 1e-14) return null;
+    for(let k=c;k<=n;k++) M[c][k] /= d;
+    for(let r=0;r<n;r++){
+      if(r===c) continue;
+      const f = M[r][c];
+      for(let k=c;k<=n;k++) M[r][k] -= f*M[c][k];
+    }
+  }
+  return M.map(row=>row[n]);
+}
+
+function initTheta(model, phys, obs){
+  const { v0 } = analytic(obs);
+  if(model >= 3) return [v0[0], v0[1], v0[2], 0.12, 0];
+  return [v0[0], v0[1], v0[2]];
+}
+
+function fitModel(model, phys, obs, sigma, warm){
+  const residual = makeResidual(model, phys, obs, sigma);
+  const starts = [];
+  if(warm){
+    /* Monte-Carlo inner loop: start from the nominal solution only */
+    starts.push(warm);
+  } else if(model >= 3){
+    const base = initTheta(model, phys, obs);
+    for(const S0 of [0.04, 0.12, 0.22])
+      for(const phi of [-2.4, -0.8, 0.8, 2.4])
+        starts.push([base[0], base[1], base[2], S0, phi]);
+  } else {
+    const base = initTheta(model, phys, obs);
+    starts.push(base);
+    starts.push([base[0]*1.05, base[1]*0.95, base[2]*1.02]);
+    starts.push([base[0]*0.95, base[1]*1.05, base[2]*0.98]);
+  }
+  let best = null;
+  const solutions = [];
+  for(const s of starts){
+    const f = lmFit(residual, s, model);
+    if(!f) continue;
+    solutions.push({ cost:f.cost, theta:f.x });
+    if(!best || f.cost < best.cost) best = f;
+  }
+  if(!best) return null;
+  const tol = Math.max(1e-8, best.cost*1e-3);
+  const distinct = solutions.filter(s=>s.cost <= best.cost + tol);
+  return { best, solutions, distinctCount: distinct.length };
+}
+
+/* ============================================================
+   8. One prediction
+   ============================================================ */
+function predict(model, phys, obs, sigma, warm){
+  const t0 = performance.now();
+  const out = { model, status:'fit_failed' };
+  if(model === 0){
+    const r = analyticCrossing(obs);
+    out.v0 = r.v0; out.a = r.a; out.event = r.event;
+    out.traj = analyticTraj(r.v0, r.a, r.event.type === 'goal_plane' ? r.event.t : 3);
+    out.status = r.event.type;
+    if(r.event.type === 'goal_plane'){ out.tg = r.event.t; out.yg = r.event.yg; out.zg = r.event.zg; }
+    out.ms = performance.now() - t0;
+    return out;
+  }
+  const fit = fitModel(model, phys, obs, sigma, warm);
+  if(!fit){ out.ms = performance.now()-t0; return out; }
+  const theta = fit.best.x;
+  const p = unpack(theta, model, phys);
+  const ctx = makeCtx(model, phys, p.omega, p.S0);
+  const { event, traj } = integrateEvent(ctx, p.v0);
+  out.theta = theta;
+  out.v0 = p.v0; out.S0 = p.S0; out.phi = p.phi; out.omega = p.omega;
+  out.ctx = ctx;
+  out.event = event;
+  out.traj = traj;
+  out.cost = fit.best.cost;
+  out.distinctCount = fit.distinctCount;
+  out.solutions = fit.solutions;
+  out.status = event.type;
+  if(event.type === 'goal_plane'){ out.tg = event.t; out.yg = event.yg; out.zg = event.zg; }
+  /* residuals at the two observation times */
+  const pos = evalPositions(ctx, p.v0, T_OBS.slice(1));
+  if(pos.ok){
+    out.resid = [];
+    let ss = 0;
+    for(let i=0;i<2;i++){
+      const d = [pos.pos[i][0]-obs[i+1][0], pos.pos[i][1]-obs[i+1][1], pos.pos[i][2]-obs[i+1][2]];
+      out.resid.push(d);
+      ss += d[0]*d[0]+d[1]*d[1]+d[2]*d[2];
+    }
+    out.rmse = Math.sqrt(ss/6);
+    out.rmseRatio = sigma > 0 ? out.rmse/sigma : null;
+  }
+  out.ms = performance.now() - t0;
+  return out;
+}
+
+/* ============================================================
+   9. Random numbers
+   ============================================================ */
+function mulberry32(seed){
+  let a = seed >>> 0;
+  return function(){
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function gauss(rng){
+  let u = 0, v = 0;
+  while(u === 0) u = rng();
+  while(v === 0) v = rng();
+  return Math.sqrt(-2*Math.log(u)) * Math.cos(2*Math.PI*v);
+}
+
+/* ============================================================
+   10. Small utilities
+   ============================================================ */
+const $ = id => document.getElementById(id);
+const fmt = (x,d=3) => (x===undefined||x===null||!isFinite(x)) ? '—' : Number(x).toFixed(d);
+const quantile = (arr,q) => {
+  if(!arr.length) return NaN;
+  const a = arr.slice().sort((x,y)=>x-y);
+  const h = (a.length-1)*q, lo = Math.floor(h), hi = Math.ceil(h);
+  return lo===hi ? a[lo] : a[lo] + (a[hi]-a[lo])*(h-lo);
+};
+const insideGoal = (y,z) => Math.abs(y) < GOAL_HALF && z > 0 && z < GOAL_H;
+const insideClear = (y,z, R) => Math.abs(y) < GOAL_HALF-R && z > R && z < GOAL_H-R;
+const STATUS_LABEL = {
+  goal_plane:'GOAL PLANE REACHED',
+  ground_first:'GROUND BEFORE GOAL',
+  outside_spin_table:'OUTSIDE SPIN TABLE',
+  fit_failed:'FIT FAILED',
+  integration_failed:'INTEGRATION FAILED',
+  no_crossing_by_time_limit:'NO CROSSING WITHIN 3 s',
+  crossing_before_last_observation:'CROSSING BEFORE LAST OBSERVATION'
+};
+function statusClass(s){
+  if(s==='goal_plane') return 'ok';
+  if(s==='ground_first'||s==='fit_failed'||s==='integration_failed'||s==='no_crossing_by_time_limit'||s==='crossing_before_last_observation') return 'bad';
+  return 'warn';
+}
+
+/* ============================================================
+   11. Drawing
+   ============================================================ */
+function canvasOf(id){ const c = $(id); return [c, c.getContext('2d')]; }
+function clear(id){ const [c,ctx] = canvasOf(id); ctx.clearRect(0,0,c.width,c.height); return [c,ctx]; }
+function drawDot(ctx,x,y,color,r=3.5){ ctx.fillStyle=color; ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fill(); }
+function ring(ctx,x,y,color,r=6){ ctx.strokeStyle=color; ctx.lineWidth=2.5; ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.stroke(); }
+
+function plotTraj(id, traj, view, opts){
+  opts = opts || {};
+  const [c,ctx] = clear(id);
+  const W = c.width, H = c.height, pad = {l:36,r:12,t:12,b:24};
+  if(!traj || !traj.length){ ctx.fillStyle='#9aa3af'; ctx.font='12px Segoe UI'; ctx.fillText('no trajectory', 20, H/2); return; }
+  const xs = traj.map(p=>p[1]);
+  const ys = traj.map(p => view==='xz' ? p[3] : p[2]);
+  const xmin = Math.min(0, ...xs), xmax = Math.max(GOAL_X, ...xs);
+  const ymin = view==='xz' ? 0 : Math.min(...ys, -0.5);
+  const ymax = view==='xz' ? Math.max(...ys, 2.6) : Math.max(...ys, 4.2);
+  const sx = (W-pad.l-pad.r)/(xmax-xmin), sy = (H-pad.t-pad.b)/(ymax-ymin);
+  const X = v => pad.l + (v-xmin)*sx, Y = v => H-pad.b-(v-ymin)*sy;
+
+  ctx.strokeStyle='#eceff3'; ctx.lineWidth=1;
+  for(let g=0; g<=xmax; g+=2){ ctx.beginPath(); ctx.moveTo(X(g),pad.t); ctx.lineTo(X(g),H-pad.b); ctx.stroke(); }
+  for(let g=Math.ceil(ymin); g<=ymax; g+=1){ ctx.beginPath(); ctx.moveTo(pad.l,Y(g)); ctx.lineTo(W-pad.r,Y(g)); ctx.stroke(); }
+
+  ctx.strokeStyle='#7a8694'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(X(GOAL_X),pad.t); ctx.lineTo(X(GOAL_X),H-pad.b); ctx.stroke();
+
+  ctx.fillStyle='#6b7480'; ctx.font='11px Segoe UI';
+  ctx.fillText('x (m)', W-pad.r-8, H-6);
+  ctx.fillText(view==='xz' ? 'z (m)' : 'y (m)', 4, pad.t+9);
+  ctx.fillText('goal', X(GOAL_X)+3, pad.t+9);
+
+  const step = Math.max(1, Math.floor(traj.length/1200));
+  ctx.strokeStyle='#1a73e8'; ctx.lineWidth=2; ctx.beginPath();
+  for(let i=0;i<traj.length;i+=step){
+    const p = traj[i], px = X(p[1]), py = Y(view==='xz'?p[3]:p[2]);
+    if(i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+  }
+  ctx.stroke();
+
+  if(opts.obs) for(const p of opts.obs) drawDot(ctx, X(p[0]), Y(view==='xz'?p[2]:p[1]), '#212a37');
+  if(opts.pred) drawDot(ctx, X(opts.pred[0]), Y(opts.pred[1]), '#1a73e8', 5);
+  if(opts.truth) ring(ctx, X(opts.truth[0]), Y(opts.truth[1]), '#dc3c3c', 6);
+}
+
+function plotGoal(id, opts){
+  opts = opts || {};
+  const [c,ctx] = clear(id);
+  const W = c.width, H = c.height, pad = {l:32,r:10,t:12,b:24};
+  const ymin=-4, ymax=4, zmin=0, zmax=3.2;
+  const sx=(W-pad.l-pad.r)/(ymax-ymin), sy=(H-pad.t-pad.b)/(zmax-zmin);
+  const X = v=>pad.l+(v-ymin)*sx, Y = v=>H-pad.b-(v-zmin)*sy;
+
+  ctx.strokeStyle='#eceff3';
+  for(let g=-4;g<=4;g++){ ctx.beginPath(); ctx.moveTo(X(g),pad.t); ctx.lineTo(X(g),H-pad.b); ctx.stroke(); }
+  for(let g=0;g<=3;g++){ ctx.beginPath(); ctx.moveTo(pad.l,Y(g)); ctx.lineTo(W-pad.r,Y(g)); ctx.stroke(); }
+
+  ctx.strokeStyle='#212a37'; ctx.lineWidth=3;
+  ctx.strokeRect(X(-GOAL_HALF), Y(GOAL_H), X(GOAL_HALF)-X(-GOAL_HALF), Y(0)-Y(GOAL_H));
+  ctx.setLineDash([4,4]); ctx.strokeStyle='#a7afba'; ctx.lineWidth=1;
+  const R = opts.R || 0.11;
+  ctx.strokeRect(X(-(GOAL_HALF-R)), Y(GOAL_H-R), X(GOAL_HALF-R)-X(-(GOAL_HALF-R)), Y(R)-Y(GOAL_H-R));
+  ctx.setLineDash([]);
+
+  if(opts.scatter){
+    ctx.fillStyle='rgba(26,115,232,0.30)';
+    for(const q of opts.scatter) ctx.fillRect(X(q[0])-1.5, Y(q[1])-1.5, 3, 3);
+  }
+  if(opts.ellipse){
+    const E = opts.ellipse;
+    ctx.save(); ctx.translate(X(E.cy), Y(E.cz)); ctx.rotate(E.angle);
+    ctx.beginPath(); ctx.ellipse(0,0, E.a*sx, E.b*sy, 0, 0, 7);
+    ctx.fillStyle='rgba(26,115,232,0.12)'; ctx.fill();
+    ctx.strokeStyle='rgba(26,115,232,0.85)'; ctx.lineWidth=1.5; ctx.stroke();
+    ctx.restore();
+  }
+  if(opts.pred) drawDot(ctx, X(opts.pred[0]), Y(opts.pred[1]), '#1a73e8', 5);
+  if(opts.truth) ring(ctx, X(opts.truth[0]), Y(opts.truth[1]), '#dc3c3c', 6);
+
+  ctx.fillStyle='#6b7480'; ctx.font='11px Segoe UI';
+  ctx.fillText('y (m)', W-pad.r-8, H-6);
+  ctx.fillText('z (m)', 4, pad.t+9);
+}
+
+function plotCoeff(){
+  const [c,ctx] = clear('cCoeff');
+  const W = c.width, H = c.height, pad = {l:40,r:44,t:16,b:26};
+  const xmin=0, xmax=0.32, ymin=0, ymax=0.36;
+  const X = v=>pad.l+(v-xmin)/(xmax-xmin)*(W-pad.l-pad.r);
+  const Y = v=>H-pad.b-(v-ymin)/(ymax-ymin)*(H-pad.t-pad.b);
+
+  ctx.strokeStyle='#eceff3';
+  for(let g=0;g<=0.3;g+=0.05){ ctx.beginPath(); ctx.moveTo(X(g),pad.t); ctx.lineTo(X(g),H-pad.b); ctx.stroke(); }
+  for(let g=0;g<=0.35;g+=0.05){ ctx.beginPath(); ctx.moveTo(pad.l,Y(g)); ctx.lineTo(W-pad.r,Y(g)); ctx.stroke(); }
+
+  /* shaded region = table domain */
+  ctx.fillStyle='rgba(26,115,232,0.05)';
+  ctx.fillRect(X(0), pad.t, X(S_MAX)-X(0), H-pad.t-pad.b);
+
+  ctx.strokeStyle='#1a73e8'; ctx.lineWidth=2; ctx.beginPath();
+  for(let i=0;i<=200;i++){ const s=S_MAX*i/200; const px=X(s), py=Y(cdOf(s)); i?ctx.lineTo(px,py):ctx.moveTo(px,py); }
+  ctx.stroke();
+
+  ctx.strokeStyle='#dc3c3c'; ctx.lineWidth=2; ctx.beginPath();
+  for(let i=0;i<=200;i++){ const s=S_MAX*i/200; const px=X(s), py=Y(clOf(s)); i?ctx.lineTo(px,py):ctx.moveTo(px,py); }
+  ctx.stroke();
+
+  for(let i=0;i<SPIN_NODES.length;i++){
+    drawDot(ctx, X(SPIN_NODES[i]), Y(CD_NODES[i]), '#1a73e8', 2.5);
+    drawDot(ctx, X(SPIN_NODES[i]), Y(CL_NODES[i]), '#dc3c3c', 2.5);
+  }
+
+  ctx.fillStyle='#6b7480'; ctx.font='11px Segoe UI';
+  ctx.fillText('S = R|ω|/|v|', W-pad.r-62, H-6);
+  ctx.fillText('coefficient', 2, pad.t+9);
+  ctx.fillStyle='#1a73e8'; ctx.fillText('C_D', W-pad.r+6, Y(0.20));
+  ctx.fillStyle='#dc3c3c'; ctx.fillText('C_L', W-pad.r+6, Y(0.31));
+  ctx.fillStyle='#9aa3af'; ctx.fillText('nodes + piecewise linear', pad.l+4, H-6);
+}
+
+function plotSpin(traj){
+  const [c,ctx] = clear('cSpin');
+  const W = c.width, H = c.height, pad = {l:40,r:12,t:14,b:24};
+  if(!traj || !traj.length){ ctx.fillStyle='#9aa3af'; ctx.fillText('no trajectory', 20, H/2); return; }
+  const tmax = traj[traj.length-1][0] || 1;
+  const ss = traj.map(p=>p[7]);
+  const ymax = Math.max(0.05, ...ss)*1.15;
+  const X = v=>pad.l+v/tmax*(W-pad.l-pad.r);
+  const Y = v=>H-pad.b-v/ymax*(H-pad.t-pad.b);
+
+  ctx.strokeStyle='#eceff3';
+  for(let g=0;g<=ymax;g+=0.1){ ctx.beginPath(); ctx.moveTo(pad.l,Y(g)); ctx.lineTo(W-pad.r,Y(g)); ctx.stroke(); }
+
+  ctx.strokeStyle='#b7791f'; ctx.setLineDash([5,4]); ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(pad.l,Y(S_MAX)); ctx.lineTo(W-pad.r,Y(S_MAX)); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle='#b7791f'; ctx.font='11px Segoe UI';
+  ctx.fillText('table limit S = 0.30', pad.l+4, Y(S_MAX)-4);
+
+  ctx.strokeStyle='#16a34a'; ctx.lineWidth=2; ctx.beginPath();
+  const step = Math.max(1, Math.floor(traj.length/900));
+  for(let i=0;i<traj.length;i+=step){
+    const px=X(traj[i][0]), py=Y(traj[i][7]);
+    i?ctx.lineTo(px,py):ctx.moveTo(px,py);
+  }
+  ctx.stroke();
+
+  ctx.fillStyle='#6b7480';
+  ctx.fillText('t (s)', W-pad.r-30, H-6);
+  ctx.fillText('S', 4, pad.t+9);
+}
+
+function plotHist(id, data, lo, hi){
+  const [c,ctx] = clear(id);
+  const W=c.width, H=c.height, pad={l:32,r:8,t:8,b:22};
+  if(data.length < 2){ ctx.fillStyle='#9aa3af'; ctx.font='12px Segoe UI'; ctx.fillText('run a Monte-Carlo to populate', pad.l, H/2); return; }
+  const nb=22, bw=(hi-lo)/nb, counts=new Array(nb).fill(0);
+  for(const v of data) counts[Math.min(nb-1, Math.max(0, Math.floor((v-lo)/bw)))]++;
+  const mx = Math.max(...counts, 1);
+  const w = (W-pad.l-pad.r)/nb;
+  ctx.fillStyle='#1a73e8';
+  for(let i=0;i<nb;i++){
+    const h = counts[i]/mx*(H-pad.t-pad.b);
+    ctx.fillRect(pad.l+i*w, H-pad.b-h, w-1, h);
+  }
+  ctx.fillStyle='#6b7480'; ctx.font='11px Segoe UI';
+  ctx.fillText(lo.toFixed(2), pad.l, H-6);
+  ctx.fillText(hi.toFixed(2), W-pad.r-24, H-6);
+}
+
+function plotInfo(res){
+  const [c,ctx] = clear('cInfo');
+  const W=c.width, H=c.height;
+  ctx.fillStyle='#fbfcfe'; ctx.fillRect(0,0,W,H);
+  ctx.font='12px Segoe UI';
+  const lines = [];
+  lines.push(['Model', res ? res.model : '—']);
+  lines.push(['Status', res ? (STATUS_LABEL[res.status] || res.status) : '—']);
+  lines.push(['Spin rate (model-implied)', res && res.omega ? (norm(res.omega)/(2*Math.PI)).toFixed(2)+' rev/s' : '—']);
+  lines.push(['S₀ ', res && res.S0 !== undefined ? res.S0.toFixed(4) : '—']);
+  if(res && res.ctx) lines.push(['C_D(S₀) / C_L(S₀)', cdOf(res.S0||0).toFixed(3)+' / '+clOf(res.S0||0).toFixed(3)]);
+  if(res && res.ctx) lines.push(['Reynolds number at launch', (2*res.ctx.R*res.ctx.rho*norm(res.v0)/res.ctx.mu).toExponential(2)]);
+  let y = 22;
+  for(const [k,v] of lines){
+    ctx.fillStyle='#6b7480'; ctx.fillText(k, 14, y);
+    ctx.fillStyle='#212a37'; ctx.fillText(String(v), 220, y);
+    y += 24;
+  }
+  ctx.fillStyle='#9aa3af'; ctx.font='11px Segoe UI';
+  ctx.fillText('Coefficients: team-supplied, not independently calibrated.', 14, H-14);
+}
+
+/* ============================================================
+   12. UI state
+   ============================================================ */
+let LAST = null;      /* last prediction */
+let LAST_MC = null;   /* last Monte-Carlo result */
+let CANCEL = false;
+let SYNTH = null;
+
+function phys(){
+  const R = +$('pRad').value;
+  const obs = readObs();
+  return {
+    m:+$('pMass').value, R, rho:+$('pRho').value, mu:+$('pMu').value,
+    r0: obs[0]
+  };
+}
+function readObs(){
+  return [
+    [+$('p0x').value, +$('p0y').value, +$('p0z').value],
+    [+$('p1x').value, +$('p1y').value, +$('p1z').value],
+    [+$('p2x').value, +$('p2y').value, +$('p2z').value],
+  ];
+}
+const modelSel = () => +$('modelSel').value;
+const sigmaVal = () => +$('sigma').value || 0;
+
+function setOut(html){ $('out').innerHTML = html; }
+function setStats(items){
+  $('stats').innerHTML = items.map(it=>`<div class="stat"><div class="k">${it.k}</div><div class="v">${it.v}</div></div>`).join('');
+}
+function pill(k,v){ return `<span class="kv">${k} <b>${v}</b></span>`; }
+
+function describe(res){
+  if(!res) return '';
+  const parts = [];
+  if(res.v0) parts.push(pill('v₀ (m/s)', `(${fmt(res.v0[0],3)}, ${fmt(res.v0[1],3)}, ${fmt(res.v0[2],3)})`));
+  if(res.a) parts.push(pill('a (m/s²)', `(${fmt(res.a[0],2)}, ${fmt(res.a[1],2)}, ${fmt(res.a[2],2)})`));
+  if(res.S0 !== undefined) parts.push(pill('S₀', fmt(res.S0,4)));
+  if(res.phi !== undefined) parts.push(pill('φ (rad)', fmt(res.phi,3)));
+  if(res.omega) parts.push(pill('|ω| (rad/s)', fmt(norm(res.omega),2)));
+  if(res.omega) parts.push(pill('spin rate (rev/s)', fmt(norm(res.omega)/(2*Math.PI),2)));
+  if(res.rmse !== undefined) parts.push(pill('RMSE (m)', fmt(res.rmse,4)));
+  if(res.rmseRatio) parts.push(pill('RMSE/σ', fmt(res.rmseRatio,2)));
+  if(res.distinctCount !== undefined) parts.push(pill('distinct solutions', res.distinctCount));
+  if(res.ms !== undefined) parts.push(pill('compute', fmt(res.ms,0)+' ms'));
+  return parts.join('');
+}
+
+/* tab switching */
+$('tabP').onclick = ()=>{ $('tabP').classList.add('active'); $('tabS').classList.remove('active');
+  $('panelP').classList.add('active'); $('panelS').classList.remove('active'); };
+$('tabS').onclick = ()=>{ $('tabS').classList.add('active'); $('tabP').classList.remove('active');
+  $('panelS').classList.add('active'); $('panelP').classList.remove('active'); };
+
+/* spin info in synthetic panel */
+function updateSpinInfo(){
+  const S0 = +$('sSpin').value || 0;
+  const v0 = +$('sSpeed').value || 0;
+  const R = +$('pRad').value || 0.11;
+  const w = v0 > 0 ? S0*v0/R : 0;
+  $('spinInfo').innerHTML = `S₀ = ${S0.toFixed(3)} &nbsp;→&nbsp; |ω| ≈ ${w.toFixed(1)} rad/s = <b>${(w/(2*Math.PI)).toFixed(2)} rev/s</b> (at the launch speed)`;
+}
+['sSpin','sSpeed','pRad'].forEach(id=>$(id).addEventListener('input', updateSpinInfo));
+updateSpinInfo();
+
+/* ============================================================
+   13. Problem case: predict
+   ============================================================ */
+function runPredict(){
+  const model = modelSel();
+  const P = phys();
+  const obs = readObs();
+  const s = sigmaVal();
+  const res = predict(model, P, obs, s);
+  LAST = res;
+
+  const parts = [];
+  parts.push(`<span class="st ${statusClass(res.status)}">${STATUS_LABEL[res.status]||res.status}</span>`);
+  parts.push(describe(res));
+  if(res.event && res.event.type === 'goal_plane'){
+    parts.push(pill('t_g (s)', fmt(res.tg,5)));
+    parts.push(pill('τ (s)', fmt(res.tg-0.10,4)));
+    parts.push(pill('y_g (m)', fmt(res.yg,4)));
+    parts.push(pill('z_g (m)', fmt(res.zg,4)));
+    parts.push(pill('inside goal', insideGoal(res.yg,res.zg)?'yes':'no'));
+    parts.push(pill('approximate clearance', insideClear(res.yg,res.zg,P.R)?'yes':'no'));
+  }
+  if(res.resid){
+    const r = res.resid.map(d=>`(${fmt(d[0],3)}, ${fmt(d[1],3)}, ${fmt(d[2],3)})`).join('  ');
+    parts.push(pill('residuals at t=0.05, 0.10 (m)', r));
+  }
+  if(Math.abs(P.r0[2]-P.R) > 1e-6) parts.push(pill('note','initial centre height differs from R'));
+  setOut(parts.join(''));
+
+  drawAll(res, null, null);
+}
+
+function drawAll(res, scatter, ellipse){
+  const traj = res ? res.traj : [];
+  const obs = readObs();
+  const pred = res && res.event && res.event.type==='goal_plane' ? [res.yg,res.zg] : null;
+  plotTraj('cXZ', traj, 'xz', {obs, pred: pred?[GOAL_X,pred[1]]:null});
+  plotTraj('cXY', traj, 'xy', {obs, pred: pred?[GOAL_X,pred[0]]:null});
+  plotGoal('cYZ', {pred, scatter, ellipse, R: phys().R});
+  plotCoeff();
+  plotSpin(traj);
+  plotInfo(res);
+}
+
+$('btnPredict').onclick = runPredict;
+
+/* ============================================================
+   14. Monte Carlo with progress and cancel
+   ============================================================ */
+async function runMC(){
+  const model = modelSel(), P = phys(), obs = readObs(), s = sigmaVal();
+  const N = Math.max(5, Math.min(2000, +$('mcN').value || 100));
+  const seed = +$('seed').value || 2026;
+  const rng = mulberry32(seed);
+
+  CANCEL = false;
+  $('btnMC').disabled = true;
+  $('btnCancel').style.display = 'block';
+  $('progress').style.display = 'block';
+  $('progress').firstElementChild.style.width = '0%';
+
+  const nominal = LAST && LAST.model === model ? LAST : predict(model, P, obs, s);
+  LAST = nominal;
+  const warm = nominal.theta ? nominal.theta.slice() : null;
+
+  const tg = [], yg = [], zg = [], scat = [];
+  const counts = { goal_plane:0, ground_first:0, outside_spin_table:0, fit_failed:0, no_crossing_by_time_limit:0, crossing_before_last_observation:0 };
+  const t0 = performance.now();
+
+  for(let i=0;i<N;i++){
+    if(CANCEL) break;
+    const o = obs.map(p=>p.slice());
+    for(let j=1;j<3;j++) for(let k=0;k<3;k++) o[j][k] += gauss(rng)*s;
+    const res = predict(model, P, o, s, warm);
+    counts[res.status] = (counts[res.status]||0)+1;
+    if(res.status === 'goal_plane'){ tg.push(res.tg); yg.push(res.yg); zg.push(res.zg); scat.push([res.yg,res.zg]); }
+    if(i % 2 === 0 || i === N-1){
+      $('progress').firstElementChild.style.width = ((i+1)/N*100)+'%';
+      await new Promise(r=>setTimeout(r,0));
+    }
+  }
+
+  $('btnMC').disabled = false;
+  $('btnCancel').style.display = 'none';
+  $('progress').style.display = 'none';
+
+  const done = tg.length + Object.values(counts).reduce((a,b)=>a+b,0);
+  const valid = tg.length;
+  LAST_MC = { tg, yg, zg, scat, counts, N, valid, seed, model, sigma:s, ms:performance.now()-t0 };
+
+  const parts = [];
+  parts.push(pill('trials completed', valid + (N-valid)));
+  parts.push(pill('valid goal-plane crossings', `${valid} / ${N}`));
+  if(valid){
+    parts.push(pill('t_g quantiles 2.5/50/97.5 %', `${fmt(quantile(tg,0.025),4)} / ${fmt(quantile(tg,0.5),4)} / ${fmt(quantile(tg,0.975),4)} s`));
+    parts.push(pill('y_g quantiles', `${fmt(quantile(yg,0.025),3)} / ${fmt(quantile(yg,0.5),3)} / ${fmt(quantile(yg,0.975),3)} m`));
+    parts.push(pill('z_g quantiles', `${fmt(quantile(zg,0.025),3)} / ${fmt(quantile(zg,0.5),3)} / ${fmt(quantile(zg,0.975),3)} m`));
+  }
+  const inG = scat.filter(q=>insideGoal(q[0],q[1])).length;
+  const inC = scat.filter(q=>insideClear(q[0],q[1],P.R)).length;
+  if(valid){
+    parts.push(pill('inside goal (denominator = valid crossings)', `${inG}/${valid} = ${fmt(100*inG/valid,1)}%`));
+    parts.push(pill('approximate clearance (same denominator)', `${inC}/${valid} = ${fmt(100*inC/valid,1)}%`));
+  }
+  const failures = Object.entries(counts).filter(([k,v])=>k!=='goal_plane'&&v>0).map(([k,v])=>`${k}: ${v}`).join(', ');
+  if(failures) parts.push(pill('non-crossing outcomes', failures));
+  parts.push(pill('seed', seed));
+  parts.push(pill('wall time', fmt(LAST_MC.ms/1000,1)+' s'));
+  parts.push(pill('conditioning', 'quantiles only over filtered valid crossings'));
+  setOut(parts.join(''));
+
+  setStats([
+    {k:'trials', v:N},
+    {k:'valid crossings', v:valid},
+    {k:'inside goal', v:valid?fmt(100*inG/valid,1)+'%':'—'},
+    {k:'clearance', v:valid?fmt(100*inC/valid,1)+'%':'—'},
+    {k:'fit failures', v:counts.fit_failed||0},
+    {k:'table exits', v:counts.outside_spin_table||0}
+  ]);
+
+  const ellipse = gaussEllipse(scat);
+  drawAll(nominal, scat, ellipse);
+  plotHist('hY', yg, -4, 4);
+  plotHist('hZ', zg, 0, 3);
+}
+
+function gaussEllipse(pts){
+  const n = pts.length;
+  if(n < 5) return null;
+  let mx=0,my=0;
+  for(const p of pts){ mx+=p[0]; my+=p[1]; }
+  mx/=n; my/=n;
+  let sxx=0,syy=0,sxy=0;
+  for(const p of pts){ const dx=p[0]-mx, dy=p[1]-my; sxx+=dx*dx; syy+=dy*dy; sxy+=dx*dy; }
+  sxx/=n-1; syy/=n-1; sxy/=n-1;
+  const mu=(sxx+syy)/2, del=Math.sqrt(Math.pow((sxx-syy)/2,2)+sxy*sxy);
+  const l1=mu+del, l2=Math.max(mu-del,1e-12);
+  const angle = 0.5*Math.atan2(2*sxy, sxx-syy);
+  const k = 5.991;  /* chi-square, 2 dof, 95% */
+  return { cy:mx, cz:my, a:Math.sqrt(k*l1), b:Math.sqrt(k*l2), angle };
+}
+
+$('btnMC').onclick = runMC;
+$('btnCancel').onclick = ()=>{ CANCEL = true; };
+
+/* ============================================================
+   15. Synthetic validation
+   ============================================================ */
+function synthTruthParams(){
+  const sp = +$('sSpeed').value, el = +$('sElev').value*Math.PI/180, az = +$('sAz').value*Math.PI/180;
+  const v0 = [sp*Math.cos(el)*Math.cos(az), sp*Math.cos(el)*Math.sin(az), sp*Math.sin(el)];
+  return { v0, S0:+$('sSpin').value, phi:+$('sPhi').value };
+}
+
+document.getElementById('btnNew').onclick = function(){
+  const gm = +$('genModel').value;
+  const P = phys();
+  const t = synthTruthParams();
+  const omega = gm >= 3 ? omegaFrom(t.v0, P.R, t.S0, t.phi) : [0,0,0];
+  const ctx = makeCtx(gm, P, omega, t.S0);
+  const { event, traj } = integrateEvent(ctx, t.v0);
+
+  /* reference positions at the three times (from the reference trajectory) */
+  const at = tm => {
+    const tr = traj;
+    if(tm <= tr[0][0]) return [tr[0][1],tr[0][2],tr[0][3]];
+    for(let i=0;i<tr.length-1;i++){
+      if(tr[i][0] <= tm && tr[i+1][0] >= tm){
+        const f = (tm-tr[i][0])/((tr[i+1][0]-tr[i][0])||1);
+        return [0,1,2].map(k=>tr[i][k+1] + f*(tr[i+1][k+1]-tr[i][k+1]));
+      }
+    }
+    const L = tr[tr.length-1];
+    return [L[1],L[2],L[3]];
+  };
+  const obsRef = [at(0), at(0.05), at(0.10)];
+  const rng = mulberry32(+$('seed').value || 2026);
+  const obs = obsRef.map(p=>p.slice());
+  const s = sigmaVal();
+  for(let j=1;j<3;j++) for(let k=0;k<3;k++) obs[j][k] += gauss(rng)*s;
+
+  SYNTH = { obsRef, obs, event, traj, gm, truth:t };
+
+  /* the predictor sees only obs + declared table */
+  const res = predict(modelSel(), P, obs, s);
+  LAST = res;
+
+  const parts = [];
+  if(event.type === 'goal_plane'){
+    parts.push(pill('true (y_g, z_g)', `(${fmt(event.yg,3)}, ${fmt(event.zg,3)}) m`));
+  } else {
+    parts.push(pill('reference outcome', event.type));
+  }
+  if(res.status === 'goal_plane' && event.type === 'goal_plane'){
+    const e = Math.hypot(res.yg-event.yg, res.zg-event.zg);
+    parts.push(pill('position error', fmt(e,4)+' m'));
+  }
+  parts.push(`<span class="st ${statusClass(res.status)}">${STATUS_LABEL[res.status]||res.status}</span>`);
+  parts.push(describe(res));
+  setOut(parts.join(''));
+
+  /* draw reference (red ring) and prediction */
+  const pred = res.status==='goal_plane' ? [res.yg,res.zg] : null;
+  const truth = event.type==='goal_plane' ? [event.yg,event.zg] : null;
+  plotTraj('cXZ', res.traj, 'xz', {obs, pred: pred?[GOAL_X,pred[1]]:null, truth: truth?[GOAL_X,truth[1]]:null});
+  plotTraj('cXY', res.traj, 'xy', {obs, pred: pred?[GOAL_X,pred[0]]:null, truth: truth?[GOAL_X,truth[0]]:null});
+  plotGoal('cYZ', {pred, truth, R:P.R});
+  plotCoeff();
+  plotSpin(res.traj);
+  plotInfo(res);
+};
+
+document.getElementById('btnNT').onclick = async function(){
+  const gm = +$('genModel').value;
+  const P = phys();
+  const N = Math.max(5, Math.min(400, +$('mcN').value || 50));
+  const s = sigmaVal();
+  const seed = +$('seed').value || 2026;
+  const rng = mulberry32(seed+1);
+
+  CANCEL = false;
+  this.disabled = true;
+  $('btnCancel').style.display = 'block';
+  $('progress').style.display = 'block';
+
+  const errs = [];
+  const outcomes = { both:0, predFail:0, refFail:0 };
+  const t0 = performance.now();
+
+  for(let i=0;i<N;i++){
+    if(CANCEL) break;
+    /* random reference shot */
+    const sp = 24 + rng()*14;
+    const el = (6 + rng()*14)*Math.PI/180;
+    const az = (-12 + rng()*24)*Math.PI/180;
+    const v0 = [sp*Math.cos(el)*Math.cos(az), sp*Math.cos(el)*Math.sin(az), sp*Math.sin(el)];
+    const S0 = 0.01 + rng()*0.24, phi = -Math.PI + rng()*2*Math.PI;
+    const omega = gm>=3 ? omegaFrom(v0, P.R, S0, phi) : [0,0,0];
+    const ctx = makeCtx(gm, P, omega, S0);
+    const ref = integrateEvent(ctx, v0);
+    if(ref.event.type !== 'goal_plane'){ outcomes.refFail++; }
+    else {
+      const pos = (tm)=>{ const tr=ref.traj; for(let j=0;j<tr.length-1;j++){ if(tr[j][0]<=tm && tr[j+1][0]>=tm){ const f=(tm-tr[j][0])/((tr[j+1][0]-tr[j][0])||1); return [0,1,2].map(k=>tr[j][k+1]+f*(tr[j+1][k+1]-tr[j][k+1])); } } return [tr[0][1],tr[0][2],tr[0][3]]; };
+      const obsRef = [pos(0), pos(0.05), pos(0.10)];
+      const obs = obsRef.map(p=>p.slice());
+      for(let j2=1;j2<3;j2++) for(let k=0;k<3;k++) obs[j2][k] += gauss(rng)*s;
+      const res = predict(modelSel(), P, obs, s);
+      if(res.status !== 'goal_plane'){ outcomes.predFail++; }
+      else {
+        outcomes.both++;
+        errs.push(Math.hypot(res.yg-ref.event.yg, res.zg-ref.event.zg));
+      }
+    }
+    if(i % 2 === 0 || i === N-1){
+      $('progress').firstElementChild.style.width = ((i+1)/N*100)+'%';
+      await new Promise(r=>setTimeout(r,0));
+    }
+  }
+
+  this.disabled = false;
+  $('btnCancel').style.display = 'none';
+  $('progress').style.display = 'none';
+
+  const ms = performance.now()-t0;
+  const parts = [];
+  parts.push(pill('trials', N));
+  parts.push(pill('both reached goal plane', outcomes.both));
+  if(errs.length){
+    const mean = errs.reduce((a,b)=>a+b,0)/errs.length;
+    parts.push(pill('mean error', fmt(mean,4)+' m'));
+    parts.push(pill('median error', fmt(quantile(errs,0.5),4)+' m'));
+    parts.push(pill('90th percentile', fmt(quantile(errs,0.9),4)+' m'));
+    parts.push(pill('max error', fmt(Math.max(...errs),4)+' m'));
+  }
+  parts.push(pill('prediction failures', outcomes.predFail));
+  parts.push(pill('reference failures', outcomes.refFail));
+  parts.push(pill('wall time', fmt(ms/1000,1)+' s'));
+  setOut(parts.join(''));
+
+  setStats([
+    {k:'trials', v:N},
+    {k:'both reached', v:outcomes.both},
+    {k:'mean error', v:errs.length?fmt(errs.reduce((a,b)=>a+b,0)/errs.length,3)+' m':'—'},
+    {k:'median error', v:errs.length?fmt(quantile(errs,0.5),3)+' m':'—'},
+    {k:'pred. failures', v:outcomes.predFail},
+    {k:'ref. failures', v:outcomes.refFail}
+  ]);
+};
+
+/* ============================================================
+   16. Exports
+   ============================================================ */
+function download(name, text, type){
+  const blob = new Blob([text], {type: type || 'text/plain;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 3000);
+}
+
+$('exCsv').onclick = ()=>{
+  if(!LAST_MC){ alert('Run a Monte-Carlo first.'); return; }
+  const rows = ['# tg_s, yg_m, zg_m'];
+  for(let i=0;i<LAST_MC.tg.length;i++) rows.push([LAST_MC.tg[i], LAST_MC.yg[i], LAST_MC.zg[i]].join(','));
+  rows.push('# counts: ' + JSON.stringify(LAST_MC.counts));
+  rows.push('# seed: ' + LAST_MC.seed + ', sigma: ' + LAST_MC.sigma + ', model: ' + LAST_MC.model);
+  download('mc_samples.csv', rows.join('\n'), 'text/csv');
+};
+
+$('exJson').onclick = ()=>{
+  const cfg = {
+    model: modelSel(), sigma: sigmaVal(), seed: +$('seed').value,
+    physical: phys(), obs: readObs(),
+    coefficients: { SPIN_NODES, CD_NODES, CL_NODES, source:'team-supplied, not independently calibrated' },
+    result: LAST ? {
+      status: LAST.status, tg: LAST.tg, yg: LAST.yg, zg: LAST.zg,
+      v0: LAST.v0, S0: LAST.S0, phi: LAST.phi,
+      omega: LAST.omega, rmse: LAST.rmse, compute_ms: LAST.ms
+    } : null
+  };
+  download('prediction_config.json', JSON.stringify(cfg, null, 2), 'application/json');
+};
+
+$('exPng').onclick = ()=>{
+  for(const id of ['cXZ','cXY','cYZ','cCoeff','cSpin','hY','hZ']){
+    const c = $(id);
+    const a = document.createElement('a');
+    a.href = c.toDataURL('image/png');
+    a.download = id + '.png';
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+};
+
+/* ============================================================
+   17. Initial render
+   ============================================================ */
+window.addEventListener('load', function(){
+  try { runPredict(); } catch(e) { console.error(e); }
+});
+</script>
+</body>
+</html>
